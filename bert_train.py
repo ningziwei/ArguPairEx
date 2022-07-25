@@ -63,7 +63,7 @@ if __name__ == '__main__':
     valid_ids: List[int] = list(range(251, 301))
     # encoder = SentenceTransformer('symanto/sn-xlm-roberta-base-snli-mnli-anli-xnli')
     encoder = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-    model = APE(encoder.get_sentence_embedding_dimension())
+    model = APE(encoder.get_sentence_embedding_dimension(), 2)
     model.cuda()
     train_3(data_path, train_ids, valid_ids, model, encoder)
 

@@ -101,6 +101,9 @@ def get_predictions(data_path: Path, ids: List[int], tokenizer: BertTokenizer,
         for inputs, _ in loader:
             inputs: Dict[str, torch.Tensor] = inputs_to_device(inputs, model.device)
             outputs: torch.Tensor = model(**inputs)
+            # print('104', outputs)
+            # print('105', outputs[0])
+            # print('106', outputs[0][:, 1])
             pred.append(outputs[0][:, 1].cpu().numpy())
 
     return np.stack(pred)
@@ -146,6 +149,7 @@ def train(data_path: Path, train_ids: List[int], valid_ids: List[int], tokenizer
             labels: torch.Tensor = labels.to(model.device)
 
             optimizer.zero_grad()
+            print('labels', labels)
             loss: torch.Tensor = model(**inputs, labels=labels)[0]
             loss.backward()
             optimizer.step()
@@ -306,7 +310,6 @@ class Track3Dataset_3(Dataset):
     data_path: Path
     ids: List[int]
     mode: str
-    tokenizer: BertTokenizer
 
     _TAGS: ClassVar = '12345'
 
@@ -382,51 +385,56 @@ def create_mini_batch_3(samples):
         all_txt1 += txt1
         all_txt2 += txt2
         all_labels += labels
+    # print('381', len(all_txt1), len(all_txt2), len(all_labels))
     all_labels = torch.tensor(all_labels) if len(all_labels) > 0 else None
     return all_txt1, all_txt2, all_labels
-         
 
 def eval_model_3(data_path, ids, model, encoder):
     label: np.ndarray = get_labels(data_path, ids)
     pred: list = []
-    dataset = Track3Dataset_2(data_path, ids, 'test')
-    dataset = gen_dataset_3(encoder, dataset)
+    dataset = Track3Dataset_3(data_path, ids, 'test')
     loader = DataLoader(dataset=dataset, batch_size=1, 
         shuffle=False, collate_fn=create_mini_batch_3)
     pred: List[np.ndarray] = []
 
     with torch.no_grad():
         model.eval()
-        for emb1, emb2, _ in loader:
+        for txt1, txt2, _ in loader:
+            # print('400', len(txt1), len(txt2))
+            emb1 = torch.Tensor(encoder.encode(txt1))
+            emb2 = torch.Tensor(encoder.encode(txt2))
             emb1 = emb1.to(encoder.device)
             emb2 = emb2.to(encoder.device)
-            outputs = model(emb1, emb2)
-            pred.append(outputs[0][:, 1].cpu().numpy())
+            outputs = model(emb1, emb2).squeeze()
+            # print('400', outputs.shape)
+            # 预测时只比较候选论点在类别1上的相对大小
+            pred.append(outputs[:, 1].cpu().numpy())
     pred = np.array(pred)
-    print(pred.shape)
+    # print(pred.shape)
     pred = pred.reshape((-1,5))
-    print(label, pred)
+    # print(label, pred)
     acc: float = compute_acc(label, pred)
     mrr: float = compute_mrr(label, pred)
     return acc, mrr
 
 def train_3(data_path, train_ids, valid_ids, model, encoder) -> None:
-    dataset = Track3Dataset_2(data_path, train_ids, 'train')
-    optimizer = AdamW(model.parameters(), lr=2e-6, weight_decay=0.1)
-    acc, _ = eval_model_3(data_path, valid_ids, model, encoder)
+    optimizer = AdamW(model.parameters(), lr=2e-4, weight_decay=0.1)
+    best_acc, _ = eval_model_3(data_path, valid_ids, model, encoder)
 
-    for epoch in range(50):
+    for epoch in range(200):
         model.train()
         running_loss: float = 0.0
-        train_examples = gen_dataset_3(encoder, dataset)
+        train_examples = Track3Dataset_3(data_path, train_ids, 'train')
         train_dataloader = DataLoader(
             train_examples, shuffle=True, 
             batch_size=5, collate_fn=create_mini_batch_3)
 
-        for emb1, emb2, labels in tqdm(train_dataloader):
+        for txt1, txt2, labels in tqdm(train_dataloader):
+            emb1 = torch.Tensor(encoder.encode(txt1))
+            emb2 = torch.Tensor(encoder.encode(txt2))
             emb1 = emb1.to(encoder.device)
             emb2 = emb2.to(encoder.device)
-            labels = labels.to(model.device)
+            labels = labels.to(encoder.device)
 
             optimizer.zero_grad()
             loss: torch.Tensor = model(emb1, emb2, labels=labels)[0]
@@ -434,8 +442,11 @@ def train_3(data_path, train_ids, valid_ids, model, encoder) -> None:
             optimizer.step()
             running_loss += loss.item()
 
-        acc, mrr = eval_model_3(data_path, valid_ids, model)
+        acc, mrr = eval_model_3(data_path, valid_ids, model, encoder)
         print(f'[epoch {epoch + 1}] loss: {running_loss:.3f}, acc: {acc:.3f} mrr: {mrr:.3f} best: {best_acc:.3f}')
+
+        if acc>best_acc:
+            best_acc = acc
 
 
     # print(f'best acc: {best_acc:.3f}')
