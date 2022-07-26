@@ -421,7 +421,7 @@ def train_3(data_path, train_ids, valid_ids, model, encoder) -> None:
     optimizer = AdamW(model.parameters(), lr=2e-4, weight_decay=0.1)
     best_acc, _ = eval_model_3(data_path, valid_ids, model, encoder)
 
-    for epoch in range(200):
+    for epoch in range(100):
         model.train()
         running_loss: float = 0.0
         train_examples = Track3Dataset_3(data_path, train_ids, 'train')
